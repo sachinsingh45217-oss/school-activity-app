@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NEEV — Pro School System (Final)</title>
+<style>
+:root{
+  --bg:#041025; --card:#071425; --accent:#06b6d4; --muted:#94a3b8; --glass:rgba(255,255,255,0.02);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(180deg,#02101b,#041025);color:#eaf6fb;min-height:100vh}
+.wrap{max-width:1100px;margin:20px auto;padding:20px}
+.header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.header h1{margin:0;font-size:1.15rem}
+.small{font-size:0.9rem;color:var(--muted)}
+.card{background:linear-gradient(180deg,var(--glass), rgba(255,255,255,0.01));border-radius:12px;padding:16px;margin-top:14px;border:1px solid rgba(255,255,255,0.03);box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+.controls{display:flex;gap:10px;flex-wrap:wrap}
+button{background:var(--accent);color:#042028;border:none;padding:9px 14px;border-radius:9px;cursor:pointer;font-weight:800}
+button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
+input,select,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;margin-top:8px}
+.row{display:flex;gap:12px;margin-top:10px}
+.col{flex:1}
+.table{width:100%;border-collapse:collapse;margin-top:10px}
+.table th,.table td{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.03);text-align:left}
+.preview{max-width:260px;border-radius:8px;margin-top:8px}
+.search{display:flex;gap:8px;align-items:center;margin-top:8px}
+.muted{color:var(--muted)}
+@media(max-width:880px){.row{flex-direction:column}}
+.note{font-size:0.9rem;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <h1>NEEV — Pro School System (Final)</h1>
+      <div class="small">Admin → Teacher → Principal → Student • Local-first prototype</div>
+    </div>
+    <div id="sessionBox" class="small muted">Not logged in</div>
+  </div>
+
+  <!-- Landing -->
+  <div id="landing" class="card">
+    <h3>Welcome</h3>
+    <div class="controls">
+      <button onclick="showCreate('student')">Create Student Account</button>
+      <button onclick="showLogin()">Login</button>
+      <button class="ghost" onclick="showHelp()">Help</button>
+    </div>
+    <div class="note">Admin = only YOU. Admin credentials are kept secret and are not stored with regular users.</div>
+  </div>
+
+  <!-- Create -->
+  <div id="createPanel" class="card" style="display:none">
+    <h3 id="createTitle">Create Account</h3>
+    <label>Role</label>
+    <select id="createRole"><option value="student">Student</option></select>
+    <label>ID (unique)</label>
+    <input id="createId" placeholder="e.g. raju01"/>
+    <label>Password</label>
+    <input id="createPass" type="password" placeholder="Choose a password"/>
+    <div class="row">
+      <button onclick="createUser()">Create</button>
+      <button class="ghost" onclick="backToLanding()">Cancel</button>
+    </div>
+    <div id="createMsg" class="note"></div>
+  </div>
+
+  <!-- Login -->
+  <div id="loginPanel" class="card" style="display:none">
+    <h3>Login</h3>
+    <label>Role</label>
+    <select id="loginRole">
+      <option value="student">Student</option>
+      <option value="teacher">Teacher</option>
+      <option value="principal">Principal</option>
+      <option value="admin">Admin</option>
+    </select>
+    <label>ID</label>
+    <input id="loginId"/>
+    <label>Password</label>
+    <input id="loginPass" type="password"/>
+    <div class="row">
+      <button onclick="doLogin()">Login</button>
+      <button class="ghost" onclick="backToLanding()">Back</button>
+    </div>
+    <div class="note">Admin login requires admin credentials (kept secret). Teachers & Principals must be created by Admin. Teachers can create their own students after login.</div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dash" class="card" style="display:none">
+    <h3 id="dashTitle">Dashboard</h3>
+    <div id="dashContent"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" onclick="logout()">Logout</button>
+      <button class="ghost" onclick="exportCSV_currentView()">Export CSV (visible)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- CONFIG ---------- */
+const ADMIN_ID = 'KANGANA_ADMIN';
+const ADMIN_PASS = 'KANGANA111XYZ'; // keep secret locally
+const K_USERS = 'neev_users_final';
+const K_SUBS = 'neev_subs_final';
+const MAX_FILE_SIZE = 12 * 1024 * 1024; // 12 MB
+
+/* ---------- STORAGE INIT ---------- */
+if(!localStorage.getItem(K_USERS)) localStorage.setItem(K_USERS, JSON.stringify({}));
+if(!localStorage.getItem(K_SUBS)) localStorage.setItem(K_SUBS, JSON.stringify({}));
+
+/* ---------- HELPERS ---------- */
+function getUsers(){ return JSON.parse(localStorage.getItem(K_USERS) || '{}'); }
+function saveUsers(u){ localStorage.setItem(K_USERS, JSON.stringify(u)); }
+function getSubs(){ return JSON.parse(localStorage.getItem(K_SUBS) || '{}'); }
+function saveSubs(s){ localStorage.setItem(K_SUBS, JSON.stringify(s)); }
+function setSession(obj){ localStorage.setItem('neev_session_final', JSON.stringify(obj)); updateSessionBox(); }
+function clearSession(){ localStorage.removeItem('neev_session_final'); updateSessionBox(); }
+function getSession(){ return JSON.parse(localStorage.getItem('neev_session_final') || 'null'); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function updateSessionBox(){ const s=getSession(); document.getElementById('sessionBox').innerText = s? `${s.role.toUpperCase()}: ${s.id}` : 'Not logged in'; }
+
+/* ---------- UI NAV ---------- */
+function showCreate(role){
+  document.getElementById('landing').style.display='none';
+  document.getElementById('loginPanel').style.display='none';
+  document.getElementById('createPanel').style.display='block';
+  document.getElementById('createRole').value = role;
+  document.getElementById('createTitle').innerText = `Create ${role.charAt(0).toUpperCase()+role.slice(1)} Account`;
+  document.getElementById('createMsg').innerText = '';
+}
+function showLogin(){
+  document.getElementById('landing').style.display='none';
+  document.getElementById('createPanel').style.display='none';
+  document.getElementById('loginPanel').style.display='block';
+}
+function backToLanding(){
+  document.getElementById('createPanel').style.display='none';
+  document.getElementById('loginPanel').style.display='none';
+  document.getElementById('landing').style.display='block';
+}
+function showDash(){ document.getElementById('landing').style.display='none'; document.getElementById('createPanel').style.display='none'; document.getElementById('loginPanel').style.display='none'; document.getElementById('dash').style.display='block'; }
+function hideDash(){ document.getElementById('dash').style.display='none'; }
+
+/* ---------- CREATE USER (student from landing) ---------- */
+function createUser(){
+  const role = document.getElementById('createRole').value;
+  const id = (document.getElementById('createId').value || '').trim();
+  const pass = (document.getElementById('createPass').value || '').trim();
+  if(!id || !pass){ alert('ID aur Password dono chahiye'); return; }
+  const users = getUsers();
+  if(users[id]){ alert('ID already exists — koi unique ID choose karo'); return; }
+  users[id] = { id, role, pass, owner: null, createdAt: new Date().toISOString() };
+  saveUsers(users);
+  document.getElementById('createMsg').innerText = `${role} account created: ${id}`;
+  document.getElementById('createId').value=''; document.getElementById('createPass').value='';
+}
+
+/* ---------- LOGIN ---------- */
+function doLogin(){
+  const role = document.getElementById('loginRole').value;
+  const id = (document.getElementById('loginId').value || '').trim();
+  const pass = (document.getElementById('loginPass').value || '').trim();
+  if(!id || !pass){ alert('ID aur Password dono dalein'); return; }
+
+  if(role === 'admin'){
+    // admin is fixed credentials — not stored in users
+    if(id === ADMIN_ID && pass === ADMIN_PASS){
+      setSession({ role:'admin', id: ADMIN_ID });
+      openAdmin();
+      return;
+    } else { alert('Invalid admin credentials'); return; }
+  }
+
+  const users = getUsers();
+  if(!users[id] || users[id].role !== role || users[id].pass !== pass){
+    alert('Invalid login — role/ID/password check karein');
+    return;
+  }
+  setSession({ role, id });
+  openRoleDashboard(role, id);
+}
+
+/* ---------- LOGOUT ---------- */
+function logout(){
+  clearSession();
+  hideDash();
+  backToLanding();
+}
+function logout(){ clearSession(); hideDash(); backToLanding(); }
+
+/* ---------- ADMIN ---------- */
+function openAdmin(){
+  showDash();
+  document.getElementById('dashTitle').innerText = 'Admin Dashboard';
+  renderAdminContent();
+}
+function renderAdminContent(){
+  const content = document.getElementById('dashContent');
+  content.innerHTML = `
+    <div class="row">
+      <div class="col card">
+        <h4>Create Teacher / Principal</h4>
+        <label>Role</label>
+        <select id="adminCreateRole"><option value="teacher">Teacher</option><option value="principal">Principal</option></select>
+        <label>ID</label><input id="adminCreateId"/>
+        <label>Password</label><input id="adminCreatePass" type="password"/>
+        <div class="row" style="margin-top:8px"><button onclick="adminCreateUser()">Create</button><button class="ghost" onclick="renderAdminAccounts()">Refresh</button></div>
+        <div id="adminCreateMsg" class="note"></div>
+      </div>
+      <div class="col card">
+        <h4>Accounts</h4>
+        <div id="adminAccounts" class="small muted"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px"><h4>All Submissions</h4><div id="adminAllSubs"></div></div>
+  `;
+  renderAdminAccounts();
+  renderAllSubsAdmin();
+}
+function adminCreateUser(){
+  const role = document.getElementById('adminCreateRole').value;
+  const id = (document.getElementById('adminCreateId').value || '').trim();
+  const pass = (document.getElementById('adminCreatePass').value || '').trim();
+  if(!id||!pass){ alert('ID & pass required'); return; }
+  const users = getUsers();
+  if(users[id]){ alert('ID already exists'); return; }
+  users[id] = { id, role, pass, owner: null, createdAt: new Date().toISOString() };
+  saveUsers(users);
+  document.getElementById('adminCreateMsg').innerText = `${role} created: ${id}`;
+  document.getElementById('adminCreateId').value=''; document.getElementById('adminCreatePass').value='';
+  renderAdminAccounts();
+  renderAllSubsAdmin();
+}
+function renderAdminAccounts(){
+  const users = getUsers();
+  let html = '';
+  ['teacher','principal','student'].forEach(r=>{
+    html += `<h5>${r.charAt(0).toUpperCase()+r.slice(1)}s</h5><ul>`;
+    Object.keys(users).forEach(id=>{
+      if(users[id].role === r){
+        html += `<li>${id} <button class="ghost" onclick="adminDeleteAccount('${id}')">Delete</button></li>`;
+      }
+    });
+    html += '</ul>';
+  });
+  document.getElementById('adminAccounts').innerHTML = html || '<div class="muted">No accounts</div>';
+}
+function adminDeleteAccount(id){
+  if(!confirm('Delete account '+id+'?')) return;
+  const users = getUsers(); delete users[id]; saveUsers(users);
+  // remove submissions
+  const s = getSubs(); delete s[id]; saveSubs(s);
+  renderAdminAccounts(); renderAllSubsAdmin();
+}
+function renderAllSubsAdmin(){
+  const s = getSubs(); const users = getUsers();
+  let html = '';
+  Object.keys(users).forEach(id=>{
+    if(users[id].role === 'student'){
+      const arr = s[id] || [];
+      if(arr.length === 0) return;
+      html += `<h5>${id}${users[id].owner ? ' (teacher: '+users[id].owner+')' : ''}</h5>`;
+      arr.forEach(r=>{
+        html += `<div style="margin-bottom:8px;padding:10px;border-radius:8px;background:var(--glass)"><div>${escapeHtml(r.text||'')}</div>${r.file?renderFileHTML(r.file):''}<div class="small muted">${r.time}</div></div>`;
+      });
+    }
+  });
+  if(!html) html = '<div class="muted">No submissions yet</div>';
+  document.getElementById('adminAllSubs').innerHTML = html;
+}
+
+/* ---------- ROLE DASHBOARDS ---------- */
+function openRoleDashboard(role, id){
+  showDash();
+  document.getElementById('dashTitle').innerText = `${role.charAt(0).toUpperCase()+role.slice(1)} Dashboard — ${id}`;
+  if(role === 'teacher') renderTeacherDashboard(id);
+  else if(role === 'principal') renderPrincipalDashboard(id);
+  else if(role === 'student') renderStudentDashboard(id);
+}
+
+/* TEACHER */
+function renderTeacherDashboard(tid){
+  const content = document.getElementById('dashContent');
+  content.innerHTML = `
+    <div class="row">
+      <div class="col card">
+        <h4>Create Student (owned by you)</h4>
+        <label>Student ID</label><input id="teacherCreateStudentId"/>
+        <label>Password</label><input id="teacherCreateStudentPass" type="password"/>
+        <div class="row" style="margin-top:8px"><button onclick="teacherCreateStudent('${tid}')">Create Student</button><button class="ghost" onclick="renderTeacherStudents('${tid}')">Refresh</button></div>
+        <div id="teacherCreateMsg" class="note"></div>
+      </div>
+      <div class="col card">
+        <h4>Your Students</h4>
+        <div id="teacherStudentsList" class="small muted"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h4>Submissions from your students</h4>
+      <div class="search"><input id="teacherSearch" placeholder="Search student ID or text..." oninput="renderTeacherSubs('${tid}')"><button class="ghost" onclick="downloadCSV_teacher('${tid}')">Download CSV (view)</button></div>
+      <div id="teacherSubs"></div>
+    </div>
+  `;
+  renderTeacherStudents(tid);
+  renderTeacherSubs(tid);
+}
+function teacherCreateStudent(tid){
+  const id = (document.getElementById('teacherCreateStudentId').value || '').trim();
+  const pass = (document.getElementById('teacherCreateStudentPass').value || '').trim();
+  if(!id||!pass){ alert('ID & pass required'); return; }
+  const users = getUsers();
+  if(users[id]){ alert('ID exists'); return; }
+  users[id] = { id, role:'student', pass, owner: tid, createdAt: new Date().toISOString() };
+  saveUsers(users);
+  document.getElementById('teacherCreateStudentId').value=''; document.getElementById('teacherCreateStudentPass').value='';
+  document.getElementById('teacherCreateMsg').innerText = `Student created: ${id}`;
+  renderTeacherStudents(tid); renderTeacherSubs(tid);
+}
+function renderTeacherStudents(tid){
+  const users = getUsers();
+  let html = '<ul>';
+  Object.keys(users).forEach(id=>{
+    if(users[id].role === 'student' && users[id].owner === tid) html += `<li>${id}</li>`;
+  });
+  html += '</ul>';
+  document.getElementById('teacherStudentsList').innerHTML = html || '<div class="muted">No students yet</div>';
+}
+function renderTeacherSubs(tid){
+  const s = getSubs(); const users = getUsers();
+  const q = (document.getElementById('teacherSearch')?.value || '').toLowerCase();
+  let html = '';
+  Object.keys(users).forEach(stuId=>{
+    if(users[stuId].role === 'student' && users[stuId].owner === tid){
+      const arr = s[stuId] || [];
+      if(arr.length === 0) return;
+      html += `<h5>${stuId}</h5>`;
+      arr.forEach(r=>{
+        if(q && !(stuId.toLowerCase().includes(q) || (r.text||'').toLowerCase().includes(q))) return;
+        html += `<div style="margin-bottom:8px;padding:10px;border-radius:8px;background:var(--glass)"><div>${escapeHtml(r.text||'')}</div>${r.file?renderFileHTML(r.file):''}<div class="small muted">${r.time}</div></div>`;
+      });
+    }
+  });
+  if(!html) html = '<div class="muted">No submissions from your students</div>';
+  document.getElementById('teacherSubs').innerHTML = html;
+}
+
+/* PRINCIPAL */
+function renderPrincipalDashboard(pid){
+  const content = document.getElementById('dashContent');
+  content.innerHTML = `
+    <div class="card">
+      <h4>All Students (Principal)</h4>
+      <div class="search"><input id="principalSearch" placeholder="Search student ID or text..." oninput="renderPrincipalSubs('${pid}')"><button class="ghost" onclick="downloadCSV_principal()">Download CSV</button></div>
+      <div id="principalSubs"></div>
+    </div>
+  `;
+  renderPrincipalSubs(pid);
+}
+function renderPrincipalSubs(pid){
+  const s = getSubs(); const users = getUsers();
+  const q = (document.getElementById('principalSearch')?.value || '').toLowerCase();
+  let html = '';
+  Object.keys(users).forEach(stuId=>{
+    if(users[stuId].role === 'student'){
+      const arr = s[stuId] || [];
+      if(arr.length === 0) return;
+      html += `<h5>${stuId}${users[stuId].owner ? ' (teacher:'+users[stuId].owner+')' : ''}</h5>`;
+      arr.forEach(r=>{
+        if(q && !(stuId.toLowerCase().includes(q) || (r.text||'').toLowerCase().includes(q))) return;
+        html += `<div style="margin-bottom:8px;padding:10px;border-radius:8px;background:var(--glass)"><div>${escapeHtml(r.text||'')}</div>${r.file?renderFileHTML(r.file):''}<div class="small muted">${r.time}</div></div>`;
+      });
+    }
+  });
+  if(!html) html = '<div class="muted">No submissions yet</div>';
+  document.getElementById('principalSubs').innerHTML = html;
+}
+
+/* STUDENT */
+function renderStudentDashboard(stuId){
+  const content = document.getElementById('dashContent');
+  content.innerHTML = `
+    <div class="card">
+      <h4>Submit Activity</h4>
+      <label>Text</label><textarea id="stuText" rows="4"></textarea>
+      <label>Attach file (image / video / doc) — max ${Math.round(MAX_FILE_SIZE/1024/1024)} MB</label><input type="file" id="stuFile"/>
+      <div class="row" style="margin-top:8px"><button onclick="studentSubmit('${stuId}')">Submit</button><button class="ghost" onclick="renderStudentSubmissions('${stuId}')">Refresh</button></div>
+    </div>
+    <div class="card"><h4>Your Submissions</h4><div id="studentSubs"></div></div>
+  `;
+  renderStudentSubmissions(stuId);
+}
+function studentSubmit(stuId){
+  const text = (document.getElementById('stuText').value || '').trim();
+  const fileInput = document.getElementById('stuFile');
+  if(!text && fileInput.files.length === 0){ alert('Text likho ya file upload karo'); return; }
+  const s = getSubs();
+  s[stuId] = s[stuId] || [];
+
+  if(fileInput.files.length > 0){
+    const f = fileInput.files[0];
+    if(f.size > MAX_FILE_SIZE){ alert('File bahut badi hai — chhoti file choose karo'); return; }
+    const reader = new FileReader();
+    reader.onload = function(e){
+      const fileObj = { name: f.name, type: f.type, data: e.target.result };
+      s[stuId].push({ text, time: new Date().toLocaleString(), file: fileObj });
+      saveSubs(s);
+      alert('Submitted with file');
+      document.getElementById('stuText').value=''; fileInput.value='';
+      renderStudentSubmissions(stuId);
+    };
+    reader.readAsDataURL(f);
+  } else {
+    s[stuId].push({ text, time: new Date().toLocaleString() });
+    saveSubs(s);
+    alert('Submitted');
+    document.getElementById('stuText').value='';
+    renderStudentSubmissions(stuId);
+  }
+}
+function renderStudentSubmissions(stuId){
+  const s = getSubs(); const arr = s[stuId] || [];
+  let html = '';
+  arr.forEach(r=>{
+    html += `<div style="margin-bottom:8px;padding:10px;border-radius:8px;background:var(--glass)"><div>${escapeHtml(r.text||'')}</div>${r.file?renderFileHTML(r.file):''}<div class="small muted">${r.time}</div></div>`;
+  });
+  if(!html) html = '<div class="muted">No submissions yet</div>';
+  document.getElementById('studentSubs').innerHTML = html;
+}
+
+/* ---------- FILE RENDER ---------- */
+function renderFileHTML(file){
+  if(!file) return '';
+  if(file.type && file.type.startsWith('image/')) return `<div><img src="${file.data}" class="preview"/></div>`;
+  if(file.type && file.type.startsWith('video/')) return `<div><video controls class="preview"><source src="${file.data}"></video></div>`;
+  return `<div><a href="${file.data}" download="${escapeHtml(file.name)}" class="small">Download ${escapeHtml(file.name)}</a></div>`;
+}
+
+/* ---------- CSV / EXPORT ---------- */
+function exportCSV_currentView(){
+  const sess = getSession();
+  if(!sess){ alert('Pehele login karein'); return; }
+  if(sess.role === 'admin') downloadCSV_all();
+  else if(sess.role === 'principal') downloadCSV_principal();
+  else if(sess.role === 'teacher') downloadCSV_teacher(sess.id);
+  else if(sess.role === 'student') downloadCSV_student(sess.id);
+}
+function downloadCSV(rows, filename){
+  const csv = rows.map(r=> r.map(c=> `"${String(c||'').replace(/"/g,'""')}"`).join(',') ).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function downloadCSV_all(){
+  const s = getSubs(); const u = getUsers();
+  const rows = [['Student','Text','HasFile','Time']];
+  Object.keys(u).forEach(id=>{ if(u[id].role === 'student'){ (s[id]||[]).forEach(r=> rows.push([id, r.text || '', r.file? 'yes':'no', r.time || ''])) }});
+  downloadCSV(rows,'neev_all_submissions.csv');
+}
+function downloadCSV_principal(){
+  const s = getSubs(); const u = getUsers();
+  const rows = [['Student','Text','HasFile','Time']];
+  Object.keys(u).forEach(id=>{ if(u[id].role === 'student'){ (s[id]||[]).forEach(r=> rows.push([id, r.text || '', r.file? 'yes':'no', r.time || ''])) }});
+  downloadCSV(rows,'neev_principal_submissions.csv');
+}
+function downloadCSV_teacher(tid){
+  const s = getSubs(); const u = getUsers();
+  const rows = [['Student','Text','HasFile','Time']];
+  Object.keys(u).forEach(id=>{ if(u[id].role==='student' && u[id].owner === tid){ (s[id]||[]).forEach(r=> rows.push([id, r.text || '', r.file? 'yes':'no', r.time || ''])) }});
+  downloadCSV(rows, `neev_teacher_${tid}_subs.csv`);
+}
+function downloadCSV_student(id){
+  const s = getSubs();
+  const rows = [['Text','HasFile','Time']];
+  (s[id]||[]).forEach(r=> rows.push([r.text || '', r.file? 'yes':'no', r.time || '']));
+  downloadCSV(rows, `neev_${id}_subs.csv`);
+}
+
+/* ---------- SESSION & NAV HELP ---------- */
+function getSession(){ return JSON.parse(localStorage.getItem('neev_session_final') || 'null'); }
+function setSession(obj){ localStorage.setItem('neev_session_final', JSON.stringify(obj)); updateSessionBox(); }
+function clearSession(){ localStorage.removeItem('neev_session_final'); updateSessionBox(); }
+function updateSessionBox(){ const s=getSession(); document.getElementById('sessionBox').innerText = s? `${s.role.toUpperCase()}: ${s.id}` : 'Not logged in'; }
+
+/* ---------- UTIL: OPEN DASH ON LOGIN ---------- */
+function openAdmin(){ openAdmin_v2(); }
+function openAdmin_v2(){ openAdminDashboard(); } // wrapper - actual function defined above
+function openAdminDashboard(){ showDash(); document.getElementById('dashTitle').innerText='Admin Dashboard'; renderAdminContent(); }
+
+function openRoleDashboard(role, id){ showDash(); document.getElementById('dashTitle').innerText=`${role.charAt(0).toUpperCase()+role.slice(1)} Dashboard — ${id}`; if(role==='teacher') renderTeacherDashboard(id); else if(role==='principal') renderPrincipalDashboard(id); else if(role==='student') renderStudentDashboard(id); }
+
+/* ---------- HELP ---------- */
+function showHelp(){
+  alert('NEEV Pro — Short Guide:\\n1) Save this file as neev_pro_final.html (All files, UTF-8) and open in browser.\\n2) Admin: ID = KANGANA_ADMIN, Password = KANGANA111XYZ (keep secret).\\n3) Admin creates Teacher/Principal. Teachers create their students after login. Students submit text/files.\\n4) Teacher sees only own students; Principal sees all; Admin sees all.');
+}
+
+/* initialize UI */
+updateSessionBox();
+</script>
+</body>
+</html>
